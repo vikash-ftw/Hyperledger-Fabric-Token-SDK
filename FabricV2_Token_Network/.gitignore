@@ -1,0 +1,29 @@
+# organizations child directories
+organizations/fabric-ca/
+organizations/ordererOrganizations/
+organizations/peerOrganizations/
+
+# channel-artifacts
+channel-artifacts/
+
+# exclude everything in logs
+logs/*
+
+# but gitkeep file in logs should be there
+!logs/.gitkeep
+
+# exclude everything in temp
+temp/*
+
+# but gitkeep file in temp should be there
+!temp/.gitkeep
+
+# tar files
+*.tar
+*.tar.gz
+
+
+
+
+
+
