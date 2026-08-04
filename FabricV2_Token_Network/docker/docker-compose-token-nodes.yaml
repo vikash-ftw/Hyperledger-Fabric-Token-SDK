@@ -68,16 +68,14 @@ services:
       - ../organizations:/var/fsc/fabric/organizations:ro
       - ../token-service/auditor/conf:/var/fsc/conf:ro
     ports:
-      # p2p is never published; peers reach it over fbn. Host side is 9010
-      # because 9000 is already bound by Portainer - a host-side-only remap.
-      - "9010:9000"
+      # p2p is never published; peers reach it over fbn.
+      - "9000:9000"
     networks:
       - fbn
     depends_on:
       tokendb.example.com:
         condition: service_healthy
     healthcheck:
-      # Inside the container, so container-internal port, not the host remap.
       test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
       interval: 10s
       timeout: 5s
