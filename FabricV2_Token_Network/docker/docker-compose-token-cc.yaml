@@ -1,0 +1,40 @@
+# Copyright IBM Corp. All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+version: "2"
+
+# Token Chaincode (CCAAS) - a SINGLE shared container dialed by both peers.
+#
+# One container rather than one per peer because approveformyorg names exactly
+# one package-id, and package-id is a hash over the package bytes including
+# connection.json. Both peers must therefore install byte-identical packages
+# pointing at the SAME chaincode address.
+#
+# CHAINCODE_ID is unknown until scripts/deployTokenCC.sh has packaged the
+# chaincode and computed its package id; that script upserts the value into
+# ../.env, which is how it lands here.
+
+networks:
+  fbn:
+    external: true
+    # COMPOSE_PROJECT_NAME + the "fbn" key from docker-compose-net.yaml, which
+    # has no `name:` override. Do not create a new network here.
+    name: fabric_net_fbn
+
+services:
+  token-cc:
+    container_name: token-cc
+    image: token-cc:latest
+    environment:
+      - CHAINCODE_SERVER_ADDRESS=0.0.0.0:9999
+      - CHAINCODE_ID=${CHAINCODE_ID}
+      # Required: the chaincode does an unconditional strconv.ParseBool on
+      # this, so leaving it unset panics the container at startup.
+      #
+      # false because the peers dial over the internal fbn network by container
+      # name, and connection.json is generated with TLS disabled to match.
+      - CHAINCODE_TLS=false
+    # No ports published: both peers reach this over fbn by container name.
+    networks:
+      - fbn

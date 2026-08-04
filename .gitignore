@@ -1,5 +1,7 @@
-# fabric binaries
-bin/
-builders/
-config/
-fabric-samples/
+# Fabric binaries and config downloaded by loadFabricDependencies.sh.
+
+/bin/
+/builders/
+/config/
+/fabric-samples/
+

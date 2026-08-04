@@ -1,0 +1,143 @@
+logging:
+  spec: info
+  format: '%{color}%{time:2006-01-02 15:04:05.000 MST} [%{module}] %{shortfunc} -> %{level:.4s} %{id:03x}%{color:reset} %{message}'
+
+# Paths are IN-CONTAINER, under the /var/fsc/ mount root; they are not valid
+# on the host.
+#
+# koanf lowercases every key recursively, so keys looked up by name must be
+# lowercase. Unknown keys are silently ignored, so a misplaced key fails at
+# runtime rather than at load.
+
+# ------------------- FSC Node Configuration -------------------------
+fsc:
+  id: owner
+
+  identity:
+    cert:
+      file: /var/fsc/keys/owner/msp/signcerts/cert.pem
+    key:
+      # fabric-ca-client names the key after a hash of its content;
+      # scripts/normalizeKeystores.sh renames it to priv_sk. Re-enrolling this
+      # identity without re-running that script breaks this path.
+      file: /var/fsc/keys/owner/msp/keystore/priv_sk
+
+  p2p:
+    type: libp2p
+    listenAddress: /ip4/0.0.0.0/tcp/9201
+    opts:
+      libp2p:
+        # A resolver NAME from fsc.endpoint.resolvers, not an address. If
+        # misplaced the node starts cleanly but never joins the mesh and views
+        # hang with no error; look for "Resolved bootstrap node address".
+        bootstrapNode: auditor
+
+  # Named backends. Every store references one BY NAME as a plain string;
+  # unset means "default".
+  persistences:
+    default:
+      type: postgres
+      opts:
+        # One database per node: all three share the same
+        # network/channel/namespace, so table names would otherwise collide and
+        # cross-contaminate the identity and keystore tables.
+        dataSource: host=tokendb.example.com port=5432 user=tokensdk password=tokensdk dbname=owner sslmode=disable
+        tablePrefix: fsc
+        # 25 x 3 nodes stays inside the server's max_connections of 200.
+        maxOpenConns: 25
+        maxIdleConns: 3
+        maxIdleTime: 45s
+        skipCreateTable: false
+
+  kvs:
+    cache:
+      size: 200
+    # persistence: default   # implicit; if set it must be a STRING - a
+    # nested {type, opts} map panics the config loader at startup.
+
+  # Names here are what bootstrapNode and the views' identity lookups resolve
+  # against.
+  endpoint:
+    resolvers:
+      - name: auditor
+        identity:
+          path: /var/fsc/keys/auditor/msp/signcerts/cert.pem
+        addresses:
+          P2P: auditor.example.com:9001
+        aliases:
+          - auditor
+      - name: issuer
+        identity:
+          path: /var/fsc/keys/issuer/msp/signcerts/cert.pem
+        addresses:
+          P2P: issuer.example.com:9101
+        aliases:
+          - issuer
+
+# ------------------- Fabric Configuration -------------------------
+fabric:
+  enabled: true
+  mynetwork: # internal SDK label for this Fabric network; must match token.tms.mytms.network
+    default: true
+    defaultMSP: Org1MSP
+    msps:
+      - id: Org1MSP
+        mspType: bccsp
+        mspID: Org1MSP
+        path: /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp
+    tls:
+      enabled: true
+    # Too low and peers respond ENHANCE_YOUR_CALM / "too_many_pings".
+    keepalive:
+      interval: 300s
+      timeout: 600s
+    orderers:
+      - address: orderer.example.com:7050
+        connectionTimeout: 10s
+        tlsEnabled: true
+        tlsRootCertFile: /var/fsc/fabric/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt
+        serverNameOverride: orderer.example.com
+    peers:
+      - address: peer0.org1.example.com:7051
+        connectionTimeout: 10s
+        tlsEnabled: true
+        tlsRootCertFile: /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
+        serverNameOverride: peer0.org1.example.com
+      - address: peer1.org1.example.com:8051
+        connectionTimeout: 10s
+        tlsEnabled: true
+        tlsRootCertFile: /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls/ca.crt
+        serverNameOverride: peer1.org1.example.com
+    channels:
+      - name: samplechannel
+        default: true
+    vault:
+      persistence: default
+      txidstore:
+        cache:
+          size: 200
+
+# ------------------- Token SDK Configuration -------------------------
+token:
+  enabled: true
+  version: v1
+  selector:
+    driver: sherdlock
+  tms:
+    mytms:
+      network: mynetwork    # must match the fabric network label above
+      channel: samplechannel
+      namespace: token-cc   # the chaincode name; a mismatch fails every token op
+      # No `driver:` key: it is derived from the public parameters fetched
+      # from the chaincode, plus whatever views/sdk/sdk.go registers.
+      wallets:
+        owners:
+          - id: escrow
+            default: true
+            path: /var/fsc/keys/wallets/escrow/msp
+          - id: user1
+            path: /var/fsc/keys/wallets/user1/msp
+          - id: user2
+            path: /var/fsc/keys/wallets/user2/msp
+      # ttxdb/tokendb/auditdb/identitydb/keystoredb all default to the
+      # "default" persistence above.

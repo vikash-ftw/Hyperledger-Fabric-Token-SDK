@@ -1,0 +1,145 @@
+# Copyright IBM Corp. All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# 2.4 rather than the bare "2" used by the other files here: it is the version
+# supporting the healthcheck-gated `condition: service_healthy` form below.
+version: "2.4"
+
+# The three Token Service nodes plus the Postgres instance backing their state.
+#
+# Container names are dotted FQDN-style because those are the exact addresses
+# each node's core.yaml uses to reach the others over Docker's embedded DNS.
+
+networks:
+  fbn:
+    external: true
+    # COMPOSE_PROJECT_NAME + the "fbn" key from docker-compose-net.yaml, which
+    # has no `name:` override. Do not create a new network here.
+    name: fabric_net_fbn
+
+# tokendb_data is CRITICAL, NON-RECOVERABLE STATE: it holds each node's
+# key_store, and therefore the private keys for every pseudonymous recipient
+# identity ever issued to it. Those keys are not on the ledger and cannot be
+# re-derived. Delete this volume and every token previously sent to the node
+# becomes permanently unspendable.
+#
+# `down -v` on this file is therefore destructive. Back it up with pg_dump.
+volumes:
+  tokendb_data:
+
+services:
+  tokendb.example.com:
+    container_name: tokendb.example.com
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=tokensdk
+      - POSTGRES_PASSWORD=tokensdk
+      # Just the bootstrap database; the per-node ones are created by the
+      # init script below.
+      - POSTGRES_DB=postgres
+    # 25 maxOpenConns per node across several pools each; the stock 100 is
+    # too tight.
+    command: ["postgres", "-c", "max_connections=200"]
+    volumes:
+      - tokendb_data:/var/lib/postgresql/data
+      # Only executed when tokendb_data is EMPTY. Bind-mount assets live in
+      # mounts/; docker/ holds only compose files and Dockerfiles.
+      - ../mounts/postgres-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - fbn
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokensdk -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  auditor.example.com:
+    container_name: auditor.example.com
+    build:
+      context: ../token-service
+      dockerfile: auditor/Dockerfile
+    environment:
+      - CONF_DIR=/var/fsc/conf
+    volumes:
+      - ../token-keys:/var/fsc/keys:ro
+      - ../organizations:/var/fsc/fabric/organizations:ro
+      - ../token-service/auditor/conf:/var/fsc/conf:ro
+    ports:
+      # p2p is never published; peers reach it over fbn. Host side is 9010
+      # because 9000 is already bound by Portainer - a host-side-only remap.
+      - "9010:9000"
+    networks:
+      - fbn
+    depends_on:
+      tokendb.example.com:
+        condition: service_healthy
+    healthcheck:
+      # Inside the container, so container-internal port, not the host remap.
+      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Tolerates the "channel not ready yet" race on first boot.
+    restart: on-failure
+
+  issuer.example.com:
+    container_name: issuer.example.com
+    build:
+      context: ../token-service
+      dockerfile: issuer/Dockerfile
+    environment:
+      - CONF_DIR=/var/fsc/conf
+    volumes:
+      - ../token-keys:/var/fsc/keys:ro
+      - ../organizations:/var/fsc/fabric/organizations:ro
+      - ../token-service/issuer/conf:/var/fsc/conf:ro
+    ports:
+      # p2p is never published; peers reach it over fbn.
+      - "9100:9100"
+    networks:
+      - fbn
+    depends_on:
+      tokendb.example.com:
+        condition: service_healthy
+      # The auditor is the P2P bootstrap node, so it must be serving before
+      # anything tries to join the mesh.
+      auditor.example.com:
+        condition: service_healthy
+    restart: on-failure
+
+  owner.example.com:
+    container_name: owner.example.com
+    build:
+      context: ../token-service
+      dockerfile: owner/Dockerfile
+    environment:
+      - CONF_DIR=/var/fsc/conf
+      # The NARROW registrar from scripts/registerWalletRegistrar.sh: it can
+      # register client-type identities in org1 and nothing else.
+      - CA_URL=https://ca_org1:7054
+      - CA_NAME=ca-org1
+      - CA_TLS_CERT=/var/fsc/fabric/organizations/fabric-ca/org1/tls-cert.pem
+      - CA_REGISTRAR_HOME=/var/fsc/keys/walletregistrar
+    volumes:
+      - ../token-keys:/var/fsc/keys:ro
+      - ../organizations:/var/fsc/fabric/organizations:ro
+      # Shadows the Fabric CA ADMIN private key inside organizations/. The
+      # owner needs the rest of that tree but must not hold a CA superuser
+      # credential - see mounts/empty-dir/.gitkeep.
+      - ../mounts/empty-dir:/var/fsc/fabric/organizations/peerOrganizations/org1.example.com/msp/keystore:ro
+      - ../token-service/owner/conf:/var/fsc/conf:ro
+    ports:
+      # p2p is never published; peers reach it over fbn.
+      - "9200:9200"
+    networks:
+      - fbn
+    depends_on:
+      tokendb.example.com:
+        condition: service_healthy
+      auditor.example.com:
+        condition: service_healthy
+    restart: on-failure

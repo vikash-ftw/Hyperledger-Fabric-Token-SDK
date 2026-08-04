@@ -1,0 +1,36 @@
+// This workspace exists to prevent dependency drift across the Token
+// Service modules (issuer, auditor, owner, views).
+//
+// Without it, each module is built with its OWN minimal version selection
+// (MVS) run over its OWN go.mod, and Go is free to resolve the SAME
+// indirect dependency to DIFFERENT versions in different modules - there
+// is nothing forcing them to agree. That exact failure occurred earlier in
+// this project: the upstream sample's auditor module resolved
+// github.com/consensys/gnark-crypto v0.12.1 while its issuer and owner
+// modules resolved v0.18.1, producing an unresolvable linker error against
+// github.com/IBM/mathlib (the two gnark-crypto versions are ABI-incompatible
+// at that boundary).
+//
+// Go workspace mode fixes this by computing ONE unified build list across
+// every module listed below via `use`, so all four modules are guaranteed
+// to select identical versions of every shared indirect dependency
+// (github.com/consensys/gnark-crypto, github.com/quic-go/quic-go,
+// github.com/libp2p/go-libp2p, etc). This file is the anti-drift mechanism
+// for this project and must not be removed. Never build with GOWORK=off.
+//
+// `views` is included here for the same reason: it is imported by all
+// three node modules (see views/logger.go for why it exists), so it must
+// share their unified build list too.
+//
+// go 1.25.7 is the floor imposed by the SDKs themselves: both
+// fabric-token-sdk v0.10.1 and fabric-smart-client v0.10.1 declare
+// `go 1.25.7` in their go.mod, so this project cannot build on the
+// golang:1.24 it used for the previous (v0.3.0) stack.
+go 1.25.7
+
+use (
+	./auditor
+	./issuer
+	./owner
+	./views
+)

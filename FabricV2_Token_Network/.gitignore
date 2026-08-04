@@ -1,29 +1,83 @@
-# organizations child directories
-organizations/fabric-ca/
-organizations/ordererOrganizations/
-organizations/peerOrganizations/
+#############################################
+# Generated crypto material - NEVER COMMIT
+#############################################
+# Produced by the register/enroll scripts and containing PRIVATE KEYS. All of
+# it is reproducible from a fresh network bring-up.
+#
+# Every directory rule is anchored with a leading slash: unanchored patterns
+# match at ANY depth, which is how a `token-cc/` rule silently hid
+# docker/Dockerfile.token-cc during an earlier cleanup.
 
-# channel-artifacts
-channel-artifacts/
+/organizations/fabric-ca/
+/organizations/ordererOrganizations/
+/organizations/peerOrganizations/
+/token-keys/
 
-# exclude everything in logs
-logs/*
+# Fabric client-SDK filesystem wallets. Unanchored on purpose: these appear
+# wherever a client app is run from, not at one fixed path.
+**/identity/
+**/wallet/
 
-# but gitkeep file in logs should be there
-!logs/.gitkeep
+#############################################
+# Generated network artifacts
+#############################################
+/channel-artifacts/
 
-# exclude everything in temp
-temp/*
+# tokengen writes fabtoken1_pp.json here and deployTokenCC.sh writes the
+# package. The chaincode Dockerfile is deliberately NOT in this directory - it
+# is tracked source at docker/Dockerfile.token-cc - so a fresh clone can build.
+/token-cc/
 
-# but gitkeep file in temp should be there
-!temp/.gitkeep
+/logs/*
+!/logs/.gitkeep
 
-# tar files
+/temp/*
+!/temp/.gitkeep
+
+#############################################
+# Build output and binaries
+#############################################
+# Go names a binary after its module directory, so `go build .` in any of
+# these drops a ~100MB file in place.
+/token-service/issuer/issuer
+/token-service/owner/owner
+/token-service/auditor/auditor
+
+# tokengen, if built into the tree instead of onto PATH
+/tokengen
+
+# Not a blanket *.out, which would also swallow data files.
+*.test
+coverage.out
+coverage.html
+
 *.tar
 *.tar.gz
+*.tgz
+*.zip
 
+#############################################
+# Dependencies
+#############################################
+node_modules/
+package-lock.json
 
+#############################################
+# Local overrides
+#############################################
+# The tracked .env must stay committed - docker compose reads it via --env-file.
+docker-compose.override.yaml
+docker-compose.override.yml
+.env.local
+*.local.yaml
 
-
-
-
+#############################################
+# Editor / OS
+#############################################
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
