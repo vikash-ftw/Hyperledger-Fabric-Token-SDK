@@ -87,18 +87,18 @@ curl -X POST localhost:9100/issue -H 'Content-Type: application/json' -d '{
 
 ### Owner — `:9200`
 
-| Method | Path | Body / Params |
-|---|---|---|
-| GET | `/healthz` | — |
-| POST | `/wallets` | `walletId` (lowercase UUID v4, optional short prefix) |
-| POST | `/transfer` | `tokenType, quantity, sender, recipient, recipientNode, message` |
-| POST | `/lock` | `orderId, tokenType, quantity, sender, listingId` |
-| POST | `/confirm` | `orderId, recipient` |
-| POST | `/cancel` | `orderId` |
-| POST | `/redeem` | `tokenType, quantity, wallet, message` |
-| GET | `/accounts` | all wallet balances |
-| GET | `/accounts/{wallet}` | `?tokenType=` optional |
-| GET | `/accounts/{wallet}/transactions` | — |
+| Method | Path | Purpose | Body / Params |
+|---|---|---|---|
+| GET | `/healthz` | liveness | — |
+| POST | `/wallets` | **register a new owner** | `walletId` (lowercase UUID v4, optional short prefix) |
+| POST | `/transfer` | direct transfer | `tokenType, quantity, sender, recipient, recipientNode, message` |
+| POST | `/lock` | escrow for a DvP order | `orderId, tokenType, quantity, sender, listingId` |
+| POST | `/confirm` | settle order to buyer | `orderId, recipient` |
+| POST | `/cancel` | unwind order to sender | `orderId` |
+| POST | `/redeem` | burn tokens | `tokenType, quantity, wallet, message` |
+| GET | `/accounts` | balances, all owners | — |
+| GET | `/accounts/{wallet}` | balance, one owner | `?tokenType=` optional |
+| GET | `/accounts/{wallet}/transactions` | history, one owner | — |
 
 ```bash
 # transfer
@@ -117,9 +117,10 @@ curl -X POST localhost:9200/confirm -H 'Content-Type: application/json' \
 curl -X POST localhost:9200/cancel -H 'Content-Type: application/json' \
   -d '{"orderId":"ord-001"}'          # returns tokens to the original sender
 
-# register a wallet
+# register a NEW OWNER - enrolls it with the CA and makes it usable immediately
 curl -X POST localhost:9200/wallets -H 'Content-Type: application/json' \
   -d '{"walletId":"usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34"}'
+curl localhost:9200/accounts/usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34   # usable at once
 
 # redeem / balances / history
 curl -X POST localhost:9200/redeem -H 'Content-Type: application/json' \
@@ -128,6 +129,13 @@ curl localhost:9200/accounts
 curl localhost:9200/accounts/user1
 curl localhost:9200/accounts/user1/transactions
 ```
+
+**Owner registration:** `POST /wallets` creates a new token owner on demand — it
+registers and enrolls the identity with the Fabric CA and adds it to the Token SDK,
+so the handle is immediately valid as a `sender`/`recipient` in `/transfer`, `/lock`
+and `/redeem`. Custodial: this node holds the signing key. The handle is caller-supplied
+and permanent — there is no unregister API, so reusing one returns HTTP 400.
+The fixed wallets (`escrow`, `user1`, `user2`) come from `registerTokenWallets.sh` instead.
 
 **DvP semantics:** `/lock` moves tokens `sender -> escrow` and claims `orderId`.
 `/confirm` settles `escrow -> recipient`; `/cancel` returns them to the original
