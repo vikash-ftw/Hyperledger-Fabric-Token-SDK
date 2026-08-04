@@ -74,15 +74,28 @@ docker-compose -f docker/docker-compose-token-nodes.yaml restart   # safe
 
 ### Issuer — `:9100`
 
-| Method | Path | Body |
-|---|---|---|
-| GET | `/healthz` | — |
-| POST | `/issue` | `tokenType, quantity, recipient, recipientNode, message` |
+| Method | Path | Purpose | Body |
+|---|---|---|---|
+| GET | `/healthz` | liveness | — |
+| POST | `/issue` | mint tokens | `tokenType, quantity, recipient, recipientNode, message` |
 
 ```bash
 curl -X POST localhost:9100/issue -H 'Content-Type: application/json' -d '{
-  "tokenType":"USD","quantity":100,"recipient":"user1",
+  "tokenType":"ASSET-LAND-001","quantity":100,"recipient":"user1",
   "recipientNode":"owner","message":"initial mint"}'
+```
+
+**Token types:** there is no registry or allowlist. A type is a free-form string
+created implicitly by the first `/issue` that names it — the call above mints
+`ASSET-LAND-001` on the spot. The only rule is non-empty; the public parameters pin
+the issuer and auditor certificates, not the set of types.
+
+To see which types exist, read them off the balances — `GET /accounts` on the owner
+returns `wallet -> tokenType -> amount`:
+
+```json
+{"message":"got balances for all owner wallets",
+ "payload":{"user1":{"ASSET-LAND-001":60},"user2":{"ASSET-LAND-001":40},"escrow":{}}}
 ```
 
 ### Owner — `:9200`
@@ -96,19 +109,19 @@ curl -X POST localhost:9100/issue -H 'Content-Type: application/json' -d '{
 | POST | `/confirm` | settle order to buyer | `orderId, recipient` |
 | POST | `/cancel` | unwind order to sender | `orderId` |
 | POST | `/redeem` | burn tokens | `tokenType, quantity, wallet, message` |
-| GET | `/accounts` | balances, all owners | — |
-| GET | `/accounts/{wallet}` | balance, one owner | `?tokenType=` optional |
+| GET | `/accounts` | balances, all owners + types | — |
+| GET | `/accounts/{wallet}` | balance, one owner | `?tokenType=` optional (omit for all types) |
 | GET | `/accounts/{wallet}/transactions` | history, one owner | — |
 
 ```bash
 # transfer
 curl -X POST localhost:9200/transfer -H 'Content-Type: application/json' -d '{
-  "tokenType":"USD","quantity":40,"sender":"user1",
+  "tokenType":"ASSET-LAND-001","quantity":40,"sender":"user1",
   "recipient":"user2","recipientNode":"owner","message":"payment"}'
 
 # DvP: lock -> confirm (or cancel)
 curl -X POST localhost:9200/lock -H 'Content-Type: application/json' -d '{
-  "orderId":"ord-001","tokenType":"USD","quantity":20,
+  "orderId":"ord-001","tokenType":"ASSET-LAND-001","quantity":20,
   "sender":"user1","listingId":"listing-abc"}'
 
 curl -X POST localhost:9200/confirm -H 'Content-Type: application/json' \
@@ -124,7 +137,7 @@ curl localhost:9200/accounts/usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34   # usable
 
 # redeem / balances / history
 curl -X POST localhost:9200/redeem -H 'Content-Type: application/json' \
-  -d '{"tokenType":"USD","quantity":5,"wallet":"user2","message":"burn"}'
+  -d '{"tokenType":"ASSET-LAND-001","quantity":5,"wallet":"user2","message":"burn"}'
 curl localhost:9200/accounts
 curl localhost:9200/accounts/user1
 curl localhost:9200/accounts/user1/transactions
@@ -158,6 +171,6 @@ Independent view from the auditor's own database.
 | GET | `/accounts/{wallet}/transactions` | — |
 
 ```bash
-curl 'localhost:9000/accounts/user1?tokenType=USD'
+curl 'localhost:9000/accounts/user1?tokenType=ASSET-LAND-001'
 curl localhost:9000/accounts/user1/transactions
 ```
