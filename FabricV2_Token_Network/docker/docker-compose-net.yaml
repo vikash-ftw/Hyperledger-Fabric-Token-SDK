@@ -6,7 +6,7 @@ version: "2"
 
 # to persist data to Docker managed volumes
 # commented As direct host path are mapped instead of defined volumes
-volumes:
+# volumes:
   # orderer.example.com:
   # orderer2.example.com:
   # peer0.org1.example.com:

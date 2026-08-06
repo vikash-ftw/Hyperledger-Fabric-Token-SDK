@@ -22,10 +22,16 @@ COPY views/ ./views/
 
 RUN CGO_ENABLED=1 go build -buildvcs=false -o /auditor ./auditor && chmod +x /auditor
 
-# glibc base: the crypto deps (IBM/mathlib, gnark-crypto) use cgo.
-FROM golang:1.25
-COPY --from=builder /auditor .
+# debian:trixie-slim is the OS golang:1.25 itself is built on, so glibc matches
+# exactly for the cgo-linked binary without shipping the Go toolchain.
+#
+# curl is REQUIRED here: the compose healthcheck runs it inside this container,
+# and issuer and owner both gate on this node reporting healthy.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /auditor /usr/local/bin/auditor
 ENV CONF_DIR=/var/fsc/conf
 EXPOSE 9000
 EXPOSE 9001
-CMD [ "./auditor" ]
+CMD ["auditor"]

@@ -16,6 +16,9 @@ cd FabricV2_Token_Network       # all scripts below run from here
 
 ```bash
 go install github.com/hyperledger-labs/fabric-token-sdk/cmd/tokengen@v0.10.1
+
+# verify - must print v0.10.1
+go version -m "$(command -v tokengen)" | awk '$1=="mod"{print $3}'
 ```
 
 ## Start
@@ -54,14 +57,19 @@ curl http://localhost:9200/healthz   # owner
 ### Restart / stop
 
 ```bash
-docker-compose -f docker/docker-compose-token-nodes.yaml restart   # safe
+docker-compose -f docker/docker-compose-token-nodes.yaml restart
 ./scripts/stop_network.sh
+./scripts/startTokenNodes.sh          # brings the nodes back with state intact
 ```
 
-> **Never run `down -v` on `docker-compose-token-nodes.yaml`.** The `tokendb_data`
-> volume holds each node's key_store; deleting it makes every token already sent to
-> that node permanently unspendable. Use `RESET=true ./scripts/startTokenNodes.sh`
-> if you genuinely need a clean slate. Back up with:
+Node state lives in `/var/hyperledger/tokendb_data`, a host bind mount alongside
+the peer/orderer/couchdb directories. `down`, `down -v`, container removal and
+image rebuilds all leave it alone — **as long as that directory exists, the network
+comes back with every wallet, key and balance.**
+
+> **Never delete `/var/hyperledger/tokendb_data`.** It holds each node's key_store
+> and the only copy of any wallet registered via `POST /wallets`; losing it makes
+> every token already sent to that node permanently unspendable. Back up with:
 > `docker exec tokendb.example.com pg_dump -U tokensdk owner > owner-backup.sql`
 
 ## Endpoints

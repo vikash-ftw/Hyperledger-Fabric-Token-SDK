@@ -4,7 +4,12 @@
 # The preconditions below exist because each one, unmet, produces an opaque
 # failure deep inside a container rather than a clear message here.
 #
-# NODE STATE IS PRESERVED ACROSS RESTARTS - DO NOT ADD `down -v` HERE.
+# NODE STATE IS PRESERVED ACROSS RESTARTS - DO NOT WIPE /var/hyperledger/tokendb_data.
+#
+# That directory is the whole recovery story: as long as it exists, this script
+# brings the network back with every wallet, key and balance intact, no matter
+# how the containers were stopped. It is a host bind mount, so `down`, `down -v`,
+# container removal and image rebuilds all leave it alone.
 #
 # The v0.3.0 script wiped node volumes on every start to work around an FSC bug
 # where the delivery client skipped the channel CONFIG block and Broadcast()
@@ -12,10 +17,8 @@
 # safe: Committer.ReloadConfigTransactions() replays the persisted config tx on
 # channel open, and node state now lives in Postgres including the key_store
 # holding private keys for every pseudonymous identity this node was issued.
-# Those keys are not on the ledger and cannot be re-derived, so wiping the
-# volume makes every token previously sent here permanently unspendable.
-#
-# For a genuine clean slate run with RESET=true, which warns and confirms.
+# Those keys are not on the ledger and cannot be re-derived, so deleting that
+# directory makes every token previously sent here permanently unspendable.
 
 echo
 echo " ____    _____      _      ____    _____ "
@@ -32,6 +35,8 @@ CHANNEL_NAME="${1:-samplechannel}"
 CHAINCODE_NAME="token-cc"
 DOCKER_NETWORK_NAME="fabric_net_fbn"
 COMPOSE_FILE_TOKEN_NODES=${PWD}/docker/docker-compose-token-nodes.yaml
+# Must match the bind mount in the compose file above.
+TOKENDB_DATA_DIR=/var/hyperledger/tokendb_data
 
 # Adding fabric bin to path
 export PATH=${PWD}/../bin:$PATH
@@ -146,36 +151,15 @@ checkNormalizedKeystore "wallet user2" "${PWD}/token-keys/wallets/user2/msp/keys
 echo "SUCCESS: all keystores are normalized to priv_sk"
 echo
 
-## NOT part of a normal start - see the header for why wiping the volume
-## orphans every token this node holds.
-if [ "${RESET}" = "true" ]; then
-  echo
-  echo "############################################################"
-  echo "# WARNING: RESET=true will DELETE the Postgres volume       "
-  echo "# (tokendb_data) backing all three Token Service nodes.     "
-  echo "#                                                           "
-  echo "# This destroys each node's key_store - the private keys for"
-  echo "# every recipient identity it has ever been issued. Those   "
-  echo "# keys are NOT on the ledger. The chain will survive, but   "
-  echo "# every existing token becomes permanently unspendable and  "
-  echo "# all balances will read as empty.                          "
-  echo "#                                                           "
-  echo "# Only correct after regenerating public parameters, or on  "
-  echo "# a network you are deliberately starting over.             "
-  echo "############################################################"
-  echo
-  printf "Type 'yes' to confirm: "
-  read -r confirm
-  if [ "${confirm}" != "yes" ]; then
-    echo "Aborted."
-    exit 1
-  fi
-  displayMsg "Resetting Token Service node state (RESET=true)"
-  set -x
-  docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} down -v >&./logs/start_token_nodes_reset_log.txt
-  set +x
-  cat ./logs/start_token_nodes_reset_log.txt
-  echo
+## Report which of the two paths this start will take. The data directory is a
+## host bind mount, so it survives `down`, `down -v`, container removal and
+## image rebuilds - as long as it is present, the nodes resume against their
+## existing wallets, keys and balances.
+if docker run --rm -v /var/hyperledger:/host:ro alpine \
+     test -s "/host/$(basename "${TOKENDB_DATA_DIR}")/PG_VERSION" 2>/dev/null; then
+  displayMsg "Resuming: ${TOKENDB_DATA_DIR} exists, node state will be reused"
+else
+  displayMsg "Fresh start: ${TOKENDB_DATA_DIR} is absent, Postgres will initialise it"
 fi
 
 ## Plain `up -d --build`, no volume wipe. Postgres comes up first and the

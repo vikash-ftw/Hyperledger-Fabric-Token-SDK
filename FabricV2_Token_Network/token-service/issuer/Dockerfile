@@ -22,10 +22,13 @@ COPY views/ ./views/
 
 RUN CGO_ENABLED=1 go build -buildvcs=false -o /issuer ./issuer && chmod +x /issuer
 
-# glibc base: the crypto deps (IBM/mathlib, gnark-crypto) use cgo.
-FROM golang:1.25
-COPY --from=builder /issuer .
+# debian:trixie-slim is the OS golang:1.25 itself is built on, so glibc matches
+# exactly for the cgo-linked binary without shipping the Go toolchain.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /issuer /usr/local/bin/issuer
 ENV CONF_DIR=/var/fsc/conf
 EXPOSE 9100
 EXPOSE 9101
-CMD [ "./issuer" ]
+CMD ["issuer"]

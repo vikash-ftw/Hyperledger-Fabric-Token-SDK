@@ -1,17 +1,6 @@
 # Token Chaincode (CCAAS) image, compiled from upstream Token SDK source with
 # our public parameters baked in.
-#
-# Lives here rather than in token-cc/ because that directory holds only
-# generated artifacts and is git-ignored wholesale; keeping this file out of it
-# is what lets a fresh clone build the chaincode. The build CONTEXT is still
-# token-cc/ (buildTokenCC.sh passes this file with `docker build -f`), which is
-# why `ADD fabtoken1_pp.json` resolves against token-cc/.
-#
-# The checkout below MUST match the tokengen that produced fabtoken1_pp.json
-# and the SDK version token-service is built against. The ledger key scheme
-# changed between v0.3.0 and v0.10.x, so a client and chaincode on different
-# major versions cannot interoperate at all.
-#
+
 # golang:1.25 in both stages: both SDKs declare `go 1.25.7`.
 
 FROM golang:1.25 AS builder
@@ -20,9 +9,14 @@ WORKDIR fabric-token-sdk
 RUN git checkout v0.10.1 && go mod download
 RUN CGO_ENABLED=1 go build -buildvcs=false -o /tcc token/services/network/fabric/tcc/main/main.go && chmod +x /tcc
 
-FROM golang:1.25
-COPY --from=builder /tcc .
-EXPOSE 9999
+# Runtime is debian:trixie-slim, not golang:1.25 - golang:1.25 IS Debian 13
+# trixie, so glibc matches exactly for the cgo-linked binary, without shipping
+# the Go toolchain. 1.3GB -> ~176MB.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /tcc /usr/local/bin/tcc
+COPY fabtoken1_pp.json /fabtoken1_pp.json
 ENV PUBLIC_PARAMS_FILE_PATH=/fabtoken1_pp.json
-ADD fabtoken1_pp.json /fabtoken1_pp.json
-CMD [ "./tcc"]
+EXPOSE 9999
+CMD ["tcc"]

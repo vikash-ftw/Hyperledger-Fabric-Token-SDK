@@ -42,12 +42,35 @@ for arg in "$@"; do
 done
 
 OUTPUT_DIR=${PWD}/token-cc
+# Must match docker/Dockerfile.token-cc and token-service/*/go.mod.
+TOKEN_SDK_VERSION=v0.10.1
 
 ## Preconditions
 
 if ! command -v tokengen >/dev/null 2>&1; then
   echo "ERROR: tokengen not found on PATH."
-  echo "Install/build tokengen and ensure it is on PATH before running this script."
+  echo "Install it with:"
+  echo "  go install github.com/hyperledger-labs/fabric-token-sdk/cmd/tokengen@${TOKEN_SDK_VERSION}"
+  exit 1
+fi
+
+# A v0.3.0 binary exposes `gen fabtoken`; v0.10.x renamed it to `gen fabtoken.v1`
+# after the driver identifier. Without this check the run fails further down with
+# "unknown flag: --issuers" - misleading, because the flag is fine and it is the
+# subcommand that does not exist, so tokengen parses it as a positional arg.
+if ! tokengen gen --help 2>&1 | grep -q 'fabtoken\.v1'; then
+  echo "ERROR: tokengen is too old - it has no 'gen fabtoken.v1' subcommand."
+  echo "  binary:  $(command -v tokengen)"
+  if command -v go >/dev/null 2>&1; then
+    found=$(go version -m "$(command -v tokengen)" 2>/dev/null | awk '$1=="mod"{print $3; exit}')
+    echo "  version: ${found:-unknown} (need ${TOKEN_SDK_VERSION})"
+  fi
+  echo
+  echo "Reinstall the matching version:"
+  echo "  go install github.com/hyperledger-labs/fabric-token-sdk/cmd/tokengen@${TOKEN_SDK_VERSION}"
+  echo
+  echo "It must match the version in docker/Dockerfile.token-cc and token-service/*/go.mod,"
+  echo "or the chaincode cannot parse the parameters this script produces."
   exit 1
 fi
 

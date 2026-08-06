@@ -1,6 +1,0 @@
-{
-  "index": { "fields": ["productOwnerName"] },
-  "ddoc": "indexOwnerDoc",
-  "name": "indexOwner",
-  "type": "json"
-}

@@ -18,15 +18,19 @@ networks:
     # has no `name:` override. Do not create a new network here.
     name: fabric_net_fbn
 
-# tokendb_data is CRITICAL, NON-RECOVERABLE STATE: it holds each node's
-# key_store, and therefore the private keys for every pseudonymous recipient
-# identity ever issued to it. Those keys are not on the ledger and cannot be
-# re-derived. Delete this volume and every token previously sent to the node
-# becomes permanently unspendable.
+# /var/hyperledger/tokendb_data is CRITICAL, NON-RECOVERABLE STATE: it holds
+# each node's key_store, and therefore the private keys for every pseudonymous
+# recipient identity ever issued to it, plus the only copy of any wallet
+# registered through POST /wallets. None of it is on the ledger or re-derivable.
+# Delete it and those tokens become permanently unspendable.
 #
-# `down -v` on this file is therefore destructive. Back it up with pg_dump.
-volumes:
-  tokendb_data:
+# A HOST BIND MOUNT, not a named volume - it sits alongside the peer, orderer
+# and couchdb state under /var/hyperledger/. `down`, `down -v`, container
+# removal and image rebuilds all leave it intact, so as long as the directory
+# exists the nodes resume with every wallet and balance. Deleting the directory
+# by hand is the only way to lose it.
+#
+# Back it up with pg_dump.
 
 services:
   tokendb.example.com:
@@ -42,9 +46,9 @@ services:
     # too tight.
     command: ["postgres", "-c", "max_connections=200"]
     volumes:
-      - tokendb_data:/var/lib/postgresql/data
-      # Only executed when tokendb_data is EMPTY. Bind-mount assets live in
-      # mounts/; docker/ holds only compose files and Dockerfiles.
+      - /var/hyperledger/tokendb_data:/var/lib/postgresql/data
+      # Only executed when the data directory is EMPTY. Bind-mount assets live
+      # in mounts/; docker/ holds only compose files and Dockerfiles.
       - ../mounts/postgres-init:/docker-entrypoint-initdb.d:ro
     networks:
       - fbn
@@ -67,6 +71,12 @@ services:
       - ../token-keys:/var/fsc/keys:ro
       - ../organizations:/var/fsc/fabric/organizations:ro
       - ../token-service/auditor/conf:/var/fsc/conf:ro
+    # Shadows the Fabric CA ADMIN private key inside organizations/. The node
+    # needs the rest of that tree but must not hold a CA superuser credential.
+    # tmpfs rather than an empty bind mount: no host directory exists, so none
+    # can be auto-created as a root-owned stub if the path is ever wrong.
+    tmpfs:
+      - /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/msp/keystore
     ports:
       # p2p is never published; peers reach it over fbn.
       - "9000:9000"
@@ -95,6 +105,9 @@ services:
       - ../token-keys:/var/fsc/keys:ro
       - ../organizations:/var/fsc/fabric/organizations:ro
       - ../token-service/issuer/conf:/var/fsc/conf:ro
+    # See the auditor service above.
+    tmpfs:
+      - /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/msp/keystore
     ports:
       # p2p is never published; peers reach it over fbn.
       - "9100:9100"
@@ -125,11 +138,11 @@ services:
     volumes:
       - ../token-keys:/var/fsc/keys:ro
       - ../organizations:/var/fsc/fabric/organizations:ro
-      # Shadows the Fabric CA ADMIN private key inside organizations/. The
-      # owner needs the rest of that tree but must not hold a CA superuser
-      # credential - see mounts/empty-dir/.gitkeep.
-      - ../mounts/empty-dir:/var/fsc/fabric/organizations/peerOrganizations/org1.example.com/msp/keystore:ro
       - ../token-service/owner/conf:/var/fsc/conf:ro
+    # See the auditor service above. Matters most here: this is the only node
+    # that talks to the CA, using the narrow walletregistrar identity.
+    tmpfs:
+      - /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/msp/keystore
     ports:
       # p2p is never published; peers reach it over fbn.
       - "9200:9200"

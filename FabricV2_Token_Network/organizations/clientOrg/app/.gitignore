@@ -1,7 +1,0 @@
-# node modules
-node_modules/
-
-# identity wallets
-identity/
-
-package-lock.json
