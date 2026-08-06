@@ -4,7 +4,7 @@
 # pass channel via arg -> createChannel.sh <channel name>
 
 CHANNEL_NAME="$1"
-: ${CHANNEL_NAME:="samplechannel"}
+: ${CHANNEL_NAME:="tokenchannel"}
 
 MAX_RETRY="3"
 VERBOSE="false"

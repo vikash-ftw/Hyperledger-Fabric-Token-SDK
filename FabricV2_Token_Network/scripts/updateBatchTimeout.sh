@@ -1,5 +1,5 @@
 #!/bin/bash
-CHANNEL_NAME=${1:-samplechannel}
+CHANNEL_NAME=${1:-tokenchannel}
 NEW_BATCH_TIMEOUT=${2:-"2s"}
 
 echo "--- BATCH TIMEOUT CONFIG SCRIPT ---"

@@ -30,7 +30,7 @@ Run in order. Each step depends on the previous one.
 ./scripts/start_fabric-ca.sh                  # CAs
 ./scripts/registerEnroll.sh                   # peer/orderer/admin MSPs
 ./scripts/start_network.sh                    # 2 orderers, 2 peers, CouchDB
-./scripts/createChannel.sh samplechannel
+./scripts/createChannel.sh tokenchannel
 
 # 2. Token identities and wallets
 ./scripts/registerTokenIdentities.sh          # fscissuer, fscauditor, fscowner
@@ -40,7 +40,7 @@ Run in order. Each step depends on the previous one.
 # 3. Token chaincode
 ./scripts/generateTokenParams.sh              # -> token-cc/fabtoken1_pp.json
 ./scripts/buildTokenCC.sh                     # -> token-cc:latest (slow on first run)
-./scripts/deployTokenCC.sh samplechannel 1
+./scripts/deployTokenCC.sh tokenchannel 1
 
 # 4. Token service nodes
 ./scripts/startTokenNodes.sh

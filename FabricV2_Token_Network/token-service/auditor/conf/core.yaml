@@ -108,7 +108,7 @@ fabric:
         tlsRootCertFile: /var/fsc/fabric/organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls/ca.crt
         serverNameOverride: peer1.org1.example.com
     channels:
-      - name: samplechannel
+      - name: tokenchannel
         default: true
     vault:
       persistence: default
@@ -125,7 +125,7 @@ token:
   tms:
     mytms:
       network: mynetwork    # must match the fabric network label above
-      channel: samplechannel
+      channel: tokenchannel
       namespace: token-cc   # the chaincode name; a mismatch fails every token op
       # No `driver:` key: it is derived from the public parameters fetched
       # from the chaincode, plus whatever views/sdk/sdk.go registers.

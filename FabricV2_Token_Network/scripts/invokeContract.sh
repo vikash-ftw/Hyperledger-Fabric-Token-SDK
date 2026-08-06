@@ -1,7 +1,7 @@
 #!/bin/bash
 # invoke smart contract
 
-CHANNEL_NAME="${1:-samplechannel}"
+CHANNEL_NAME="${1:-tokenchannel}"
 CC_SRC_LANGUAGE=javascript
 VERSION=1
 DELAY=3

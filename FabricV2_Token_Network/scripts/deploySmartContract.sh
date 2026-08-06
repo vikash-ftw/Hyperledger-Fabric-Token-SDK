@@ -2,7 +2,7 @@
 # deploy smart contract
 
 # Default values for channelname and version
-CHANNEL_NAME="${1:-samplechannel}"
+CHANNEL_NAME="${1:-tokenchannel}"
 VERSION="${2:-1}"
 # Set the default value of SKIP_PKG_INSTALL as 0 if no third argument is provided
 SKIP_PKG_INSTALL="${3:-0}"

@@ -31,7 +31,7 @@ echo "====== Starting Token Service Nodes ======"
 echo
 echo
 
-CHANNEL_NAME="${1:-samplechannel}"
+CHANNEL_NAME="${1:-tokenchannel}"
 CHAINCODE_NAME="token-cc"
 DOCKER_NETWORK_NAME="fabric_net_fbn"
 COMPOSE_FILE_TOKEN_NODES=${PWD}/docker/docker-compose-token-nodes.yaml

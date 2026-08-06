@@ -1,5 +1,5 @@
 #!/bin/bash
-CHANNEL_NAME=${1:-samplechannel}
+CHANNEL_NAME=${1:-tokenchannel}
 NEW_BATCH_SIZE=${2:-10}
 
 echo "--- BATCH SIZE CONFIG SCRIPT ---"

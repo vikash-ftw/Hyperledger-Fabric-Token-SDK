@@ -15,7 +15,7 @@
 # --init-required invocation both dial the chaincode address.
 
 # Default values for channelname and version
-CHANNEL_NAME="${1:-samplechannel}"
+CHANNEL_NAME="${1:-tokenchannel}"
 VERSION="${2:-1}"
 
 MAX_RETRY="3"
