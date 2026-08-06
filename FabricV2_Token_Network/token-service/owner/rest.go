@@ -49,7 +49,7 @@ type registerWalletRequest struct {
 func startREST(svc TokenService, addr string) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("POST /wallets", handleRegisterWallet(svc))
+	mux.HandleFunc("POST /register", handleRegisterWallet(svc))
 	mux.HandleFunc("POST /transfer", handleTransfer(svc))
 	mux.HandleFunc("POST /lock", handleLock(svc))
 	mux.HandleFunc("POST /confirm", handleConfirm(svc))

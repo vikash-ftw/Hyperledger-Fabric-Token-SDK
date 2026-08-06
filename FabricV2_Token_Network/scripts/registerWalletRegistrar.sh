@@ -1,7 +1,7 @@
 #!/bin/bash
 # Register + enroll the `walletregistrar` CA identity.
 #
-# The owner node's POST /wallets needs CA credentials at runtime. The obvious
+# The owner node's POST /register needs CA credentials at runtime. The obvious
 # credential - the CA admin from registerEnroll.sh - is a full superuser
 # (Registrar.Roles=*, Revoker, AffiliationMgr, GenCRL, IntermediateCA), so
 # mounting it into a network-facing container would let anyone compromising

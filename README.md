@@ -35,7 +35,7 @@ Run in order. Each step depends on the previous one.
 # 2. Token identities and wallets
 ./scripts/registerTokenIdentities.sh          # fscissuer, fscauditor, fscowner
 ./scripts/registerTokenWallets.sh             # escrow, user1, user2 (+ normalizes keystores)
-./scripts/registerWalletRegistrar.sh          # narrow CA identity for POST /wallets
+./scripts/registerWalletRegistrar.sh          # narrow CA identity for POST /register
 
 # 3. Token chaincode
 ./scripts/generateTokenParams.sh              # -> token-cc/fabtoken1_pp.json
@@ -54,6 +54,20 @@ curl http://localhost:9100/healthz   # issuer
 curl http://localhost:9200/healthz   # owner
 ```
 
+## API docs
+
+**<http://localhost:8090>** — Swagger UI covering all three nodes, started
+alongside them by `startTokenNodes.sh`.
+
+`Try it out` works there because the same container reverse-proxies the nodes at
+`/api/issuer`, `/api/owner` and `/api/auditor`, so the browser talks to one
+origin; the nodes send no CORS headers, so calling their ports directly from a
+browser will not work. `curl` is unaffected — use the ports below.
+
+The spec is `FabricV2_Token_Network/api/openapi.yaml`. Its directory is mounted
+into the container, so an edit is served on the next page reload — no restart,
+no rebuild.
+
 ### Restart / stop
 
 ```bash
@@ -68,7 +82,7 @@ image rebuilds all leave it alone — **as long as that directory exists, the ne
 comes back with every wallet, key and balance.**
 
 > **Never delete `/var/hyperledger/tokendb_data`.** It holds each node's key_store
-> and the only copy of any wallet registered via `POST /wallets`; losing it makes
+> and the only copy of any wallet registered via `POST /register`; losing it makes
 > every token already sent to that node permanently unspendable. Back up with:
 > `docker exec tokendb.example.com pg_dump -U tokensdk owner > owner-backup.sql`
 
@@ -111,7 +125,7 @@ returns `wallet -> tokenType -> amount`:
 | Method | Path | Purpose | Body / Params |
 |---|---|---|---|
 | GET | `/healthz` | liveness | — |
-| POST | `/wallets` | **register a new owner** | `walletId` (lowercase UUID v4, optional short prefix) |
+| POST | `/register` | **register a new owner** | `walletId` (lowercase UUID v4, optional short prefix) |
 | POST | `/transfer` | direct transfer | `tokenType, quantity, sender, recipient, recipientNode, message` |
 | POST | `/lock` | escrow for a DvP order | `orderId, tokenType, quantity, sender, listingId` |
 | POST | `/confirm` | settle order to buyer | `orderId, recipient` |
@@ -138,10 +152,13 @@ curl -X POST localhost:9200/confirm -H 'Content-Type: application/json' \
 curl -X POST localhost:9200/cancel -H 'Content-Type: application/json' \
   -d '{"orderId":"ord-001"}'          # returns tokens to the original sender
 
-# register a NEW OWNER - enrolls it with the CA and makes it usable immediately
-curl -X POST localhost:9200/wallets -H 'Content-Type: application/json' \
-  -d '{"walletId":"usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34"}'
-curl localhost:9200/accounts/usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34   # usable at once
+# register a NEW OWNER - enrolls it with the CA and makes it usable immediately.
+# Generated, not hardcoded: a handle is burned on first use, so a fixed one
+# works once and returns 400 ever after.
+WALLET="usr-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+curl -X POST localhost:9200/register -H 'Content-Type: application/json' \
+  -d "{\"walletId\":\"$WALLET\"}"
+curl localhost:9200/accounts/$WALLET   # usable at once
 
 # redeem / balances / history
 curl -X POST localhost:9200/redeem -H 'Content-Type: application/json' \
@@ -151,7 +168,7 @@ curl localhost:9200/accounts/user1
 curl localhost:9200/accounts/user1/transactions
 ```
 
-**Owner registration:** `POST /wallets` creates a new token owner on demand — it
+**Owner registration:** `POST /register` creates a new token owner on demand — it
 registers and enrolls the identity with the Fabric CA and adds it to the Token SDK,
 so the handle is immediately valid as a `sender`/`recipient` in `/transfer`, `/lock`
 and `/redeem`. Custodial: this node holds the signing key. The handle is caller-supplied

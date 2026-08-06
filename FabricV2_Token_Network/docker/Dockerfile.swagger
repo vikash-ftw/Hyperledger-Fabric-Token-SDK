@@ -1,0 +1,17 @@
+# Swagger UI for the issuer, auditor and owner APIs.
+#
+# nginx serves the UI and reverse-proxies all three nodes, so the browser talks
+# to ONE origin. The nodes send no CORS headers and net/http.ServeMux answers a
+# preflight OPTIONS with 405, so a cross-origin "Try it out" cannot work.
+#
+# Only the static assets come from swaggerapi/swagger-ui; its entrypoint templates
+# swagger-initializer.js from env vars, which would fight the bind mount.
+#
+# Nothing is COPYied from the build context, so the compose context can stay at
+# docker/. It must never be FabricV2_Token_Network/, which would push
+# organizations/ and token-keys/ private keys into the build context.
+FROM swaggerapi/swagger-ui:v5.29.0 AS ui
+
+FROM nginx:1.29-alpine
+COPY --from=ui /usr/share/nginx/html/ /usr/share/nginx/html/
+EXPOSE 8090

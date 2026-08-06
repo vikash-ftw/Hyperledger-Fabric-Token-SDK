@@ -21,7 +21,7 @@ networks:
 # /var/hyperledger/tokendb_data is CRITICAL, NON-RECOVERABLE STATE: it holds
 # each node's key_store, and therefore the private keys for every pseudonymous
 # recipient identity ever issued to it, plus the only copy of any wallet
-# registered through POST /wallets. None of it is on the ledger or re-derivable.
+# registered through POST /register. None of it is on the ledger or re-derivable.
 # Delete it and those tokens become permanently unspendable.
 #
 # A HOST BIND MOUNT, not a named volume - it sits alongside the peer, orderer
@@ -154,3 +154,24 @@ services:
       auditor.example.com:
         condition: service_healthy
     restart: on-failure
+
+  swagger.example.com:
+    container_name: swagger.example.com
+    build:
+      context: .
+      dockerfile: Dockerfile.swagger
+    # DIRECTORY mounts, never single files: a single-file bind mount pins an
+    # inode, so the first edit that replaces the file breaks the mount and the
+    # container can no longer start. See the alias blocks in conf/nginx.conf.
+    volumes:
+      - ../api:/srv/api:ro
+      - ../mounts/swagger/ui:/srv/ui:ro
+      - ../mounts/swagger/conf:/etc/nginx/conf.d:ro
+    ports:
+      # 8080 is fabric-explorer.
+      - "8090:8090"
+    networks:
+      - fbn
+    # No depends_on: nginx resolves the three nodes per request (see nginx.conf),
+    # so it starts before them and 502s until they answer.
+    restart: unless-stopped

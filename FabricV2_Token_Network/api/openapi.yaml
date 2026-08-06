@@ -1,0 +1,784 @@
+openapi: 3.0.3
+
+info:
+  title: Fabric Token SDK — Node APIs
+  version: "0.10.1"
+  description: |
+    REST APIs of the three Fabric Smart Client nodes: **issuer**, **owner** and
+    **auditor**.
+
+    ### Trying these out
+
+    The `Try it out` buttons go through the Swagger container's reverse proxy at
+    `/api/<node>/…`, so the browser only ever talks to one origin. The nodes
+    themselves send no CORS headers, so calling their ports directly from a
+    browser will not work.
+
+    For `curl`, address the nodes directly and drop the `/api/<node>` prefix:
+
+    | Node | Direct base URL |
+    |---|---|
+    | issuer | `http://localhost:9100` |
+    | owner | `http://localhost:9200` |
+    | auditor | `http://localhost:9000` |
+
+    ```bash
+    curl localhost:9200/accounts          # same as GET /api/owner/accounts
+    ```
+
+    ### Token types
+
+    There is no registry or allowlist. A type is a free-form non-empty string
+    created implicitly by the first `POST /issue` that names it. The public
+    parameters pin the issuer and auditor certificates, not the set of types.
+    To discover which types exist, read them off `GET /api/owner/accounts`.
+
+    ### Every response has the same envelope
+
+    `{"message": "...", "payload": ...}` — `payload` is omitted when empty, and
+    errors carry `message` only.
+
+servers:
+  - url: /api
+    description: Swagger container reverse proxy (the only origin a browser can use)
+
+tags:
+  - name: Issuer
+    description: Mints new tokens. Port 9100.
+  - name: Owner
+    description: |
+      Holds owner wallets and moves tokens: transfer, DvP lock/confirm/cancel,
+      redeem, balances and history. Port 9200.
+  - name: Auditor
+    description: |
+      Independent read-only view built from the auditor's own database rather
+      than the owner's. Use it to cross-check owner balances. Port 9000.
+
+paths:
+
+  ###########################################################################
+  # Issuer
+  ###########################################################################
+
+  /issuer/healthz:
+    get:
+      tags: [Issuer]
+      operationId: issuerHealthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Node is serving
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                message: ok
+
+  /issuer/issue:
+    post:
+      tags: [Issuer]
+      operationId: issue
+      summary: Mint tokens into an owner wallet
+      description: |
+        Creates new tokens of `tokenType` and assigns them to `recipient` on
+        `recipientNode`. If the type has never been used before, this call is
+        what brings it into existence.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueRequest"
+      responses:
+        "200":
+          description: Minted. `payload` is the transaction ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxResponse"
+              example:
+                message: issued 100 ASSET-LAND-001 to user1
+                payload: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  ###########################################################################
+  # Owner
+  ###########################################################################
+
+  /owner/healthz:
+    get:
+      tags: [Owner]
+      operationId: ownerHealthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Node is serving
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                message: ok
+
+  /owner/register:
+    post:
+      tags: [Owner]
+      operationId: registerWallet
+      summary: Register a new owner
+      description: |
+        Registers and enrolls a brand-new identity with the Fabric CA and adds it
+        to the Token SDK, so the handle is immediately usable as a `sender` or
+        `recipient` in `/transfer`, `/lock` and `/redeem`.
+
+        Custodial — this node holds the signing key.
+
+        **A handle is permanently burned once registered.** There is no
+        unregister API, so reusing one returns `400`. The fixed wallets
+        (`escrow`, `user1`, `user2`) are created by
+        `scripts/registerTokenWallets.sh` instead and are not registered here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterWalletRequest"
+      responses:
+        "200":
+          description: Registered. `payload` is the wallet handle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                message: wallet usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34 registered
+                payload: usr-3f8a1c22-9d4e-4b17-8c65-2ab7e91f0d34
+        "400":
+          description: |
+            Malformed `walletId`, or the handle is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                message: wallet [usr-3f8a…] is already registered; wallet handles are never reused
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/transfer:
+    post:
+      tags: [Owner]
+      operationId: transfer
+      summary: Transfer tokens between owners
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferRequest"
+      responses:
+        "200":
+          description: Transferred. `payload` is the transaction ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxResponse"
+              example:
+                message: user1 transferred 40 ASSET-LAND-001 to user2
+                payload: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/lock:
+    post:
+      tags: [Owner]
+      operationId: lockOrder
+      summary: "DvP step 1 — lock tokens into escrow for an order"
+      description: |
+        Moves `quantity` of `tokenType` from `sender` to the `escrow` wallet and
+        claims `orderId`. Settle it afterwards with `/confirm`, or unwind it with
+        `/cancel`.
+
+        Each `orderId` is single-use: `orderId` is the primary key of the
+        `app_order_locks` table in the owner database, so a duplicate `/lock`
+        loses the insert rather than double-spending.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LockRequest"
+      responses:
+        "200":
+          description: Locked. `payload` is the transaction ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxResponse"
+              example:
+                message: locked 20 ASSET-LAND-001 from user1 for order ord-001
+                payload: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        "400":
+          $ref: "#/components/responses/OrderBadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/confirm:
+    post:
+      tags: [Owner]
+      operationId: confirmOrder
+      summary: "DvP step 2a — settle a locked order to the buyer"
+      description: |
+        Moves the escrowed tokens from `escrow` to `recipient` and marks the
+        order settled.
+
+        **Not authenticated.** `requireAuthority()` in
+        `token-service/owner/dvp.go` is a no-op stub, so anyone who can reach
+        this endpoint can settle any locked order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRequest"
+      responses:
+        "200":
+          description: Settled. `payload` is the transaction ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxResponse"
+              example:
+                message: confirmed order ord-001 to user2
+                payload: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        "400":
+          $ref: "#/components/responses/OrderBadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/cancel:
+    post:
+      tags: [Owner]
+      operationId: cancelOrder
+      summary: "DvP step 2b — unwind a locked order to the original sender"
+      description: |
+        Returns the escrowed tokens to whoever locked them. There is deliberately
+        no `recipient` parameter: a caller must not be able to redirect an unwind
+        to an arbitrary destination.
+
+        **Not authenticated** — see `/confirm`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRequest"
+      responses:
+        "200":
+          description: Cancelled. `payload` is the transaction ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxResponse"
+              example:
+                message: cancelled order ord-001
+                payload: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        "400":
+          $ref: "#/components/responses/OrderBadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/redeem:
+    post:
+      tags: [Owner]
+      operationId: redeem
+      summary: Burn tokens held by a wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemRequest"
+      responses:
+        "200":
+          description: Burned. `payload` is the transaction ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxResponse"
+              example:
+                message: user2 redeemed 5 ASSET-LAND-001
+                payload: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/accounts:
+    get:
+      tags: [Owner]
+      operationId: allBalances
+      summary: Balances of every owner wallet on this node
+      description: |
+        Also the only way to discover which token types are in use — there is no
+        type registry.
+      responses:
+        "200":
+          description: "`payload` maps wallet -> token type -> amount."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllBalancesResponse"
+              example:
+                message: got balances for all owner wallets
+                payload:
+                  user1: { ASSET-LAND-001: 60 }
+                  user2: { ASSET-LAND-001: 40 }
+                  escrow: {}
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/accounts/{wallet}:
+    get:
+      tags: [Owner]
+      operationId: ownerBalance
+      summary: Balance of one owner wallet
+      parameters:
+        - $ref: "#/components/parameters/Wallet"
+        - name: tokenType
+          in: query
+          required: false
+          description: Restrict to one type. Omit to get every type held.
+          schema:
+            type: string
+          example: ASSET-LAND-001
+      responses:
+        "200":
+          description: "`payload` maps token type -> amount."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalancesResponse"
+              example:
+                message: got balances for user1
+                payload: { ASSET-LAND-001: 60 }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /owner/accounts/{wallet}/transactions:
+    get:
+      tags: [Owner]
+      operationId: ownerHistory
+      summary: Transaction history of one owner wallet
+      description: Every transaction this node recorded with the wallet as sender or recipient.
+      parameters:
+        - $ref: "#/components/parameters/Wallet"
+      responses:
+        "200":
+          description: "`payload` is the transaction list."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  ###########################################################################
+  # Auditor
+  ###########################################################################
+
+  /auditor/healthz:
+    get:
+      tags: [Auditor]
+      operationId: auditorHealthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Node is serving
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                message: ok
+
+  /auditor/accounts/{wallet}:
+    get:
+      tags: [Auditor]
+      operationId: auditorBalance
+      summary: Audited balance of a wallet
+      description: |
+        Same wallet, but computed from the auditor's own database. Unlike the
+        owner's equivalent, `tokenType` is **required**.
+      parameters:
+        - $ref: "#/components/parameters/Wallet"
+        - name: tokenType
+          in: query
+          required: true
+          schema:
+            type: string
+          example: ASSET-LAND-001
+      responses:
+        "200":
+          description: "`payload` maps token type -> amount."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalancesResponse"
+              example:
+                message: got audited balances for user1
+                payload: { ASSET-LAND-001: 60 }
+        "400":
+          description: "`wallet` or the `tokenType` query parameter is missing."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                message: tokenType query parameter is required
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auditor/accounts/{wallet}/transactions:
+    get:
+      tags: [Auditor]
+      operationId: auditorHistory
+      summary: Audited transaction history of a wallet
+      parameters:
+        - $ref: "#/components/parameters/Wallet"
+      responses:
+        "200":
+          description: "`payload` is the transaction list."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+components:
+
+  parameters:
+    Wallet:
+      name: wallet
+      in: path
+      required: true
+      description: Wallet handle, e.g. `user1` or a `POST /register` UUID handle.
+      schema:
+        type: string
+      example: user1
+
+  responses:
+    BadRequest:
+      description: Malformed JSON body, or a required field is missing or zero.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Response"
+          example:
+            message: quantity must be greater than zero
+
+    OrderBadRequest:
+      description: |
+        A caller mistake rather than a server fault. As well as the usual field
+        validation, one of:
+
+        - `orderId has already been used` — a `/lock` reusing a claimed order
+        - `orderId does not correspond to a prior lock` — unknown order
+        - `order is not in the locked state (already confirmed or cancelled)`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Response"
+          example:
+            message: order is not in the locked state (already confirmed or cancelled)
+
+    ServerError:
+      description: The underlying token operation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Response"
+
+  schemas:
+
+    Response:
+      type: object
+      description: The envelope every endpoint returns. `payload` is omitted when empty.
+      properties:
+        message:
+          type: string
+        payload: {}
+
+    TxResponse:
+      allOf:
+        - $ref: "#/components/schemas/Response"
+        - type: object
+          properties:
+            payload:
+              type: string
+              description: Fabric transaction ID.
+
+    BalancesResponse:
+      allOf:
+        - $ref: "#/components/schemas/Response"
+        - type: object
+          properties:
+            payload:
+              $ref: "#/components/schemas/Balances"
+
+    AllBalancesResponse:
+      allOf:
+        - $ref: "#/components/schemas/Response"
+        - type: object
+          properties:
+            payload:
+              type: object
+              description: Wallet handle -> balances.
+              additionalProperties:
+                $ref: "#/components/schemas/Balances"
+
+    HistoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/Response"
+        - type: object
+          properties:
+            payload:
+              type: array
+              items:
+                $ref: "#/components/schemas/TransactionHistoryItem"
+
+    Balances:
+      type: object
+      description: Token type -> summed amount of unspent tokens.
+      additionalProperties:
+        type: integer
+        format: int64
+      example:
+        ASSET-LAND-001: 60
+
+    Quantity:
+      type: integer
+      format: int64
+      minimum: 1
+      description: Must be greater than zero.
+      example: 100
+
+    TokenType:
+      type: string
+      minLength: 1
+      description: |
+        Free-form, created implicitly by the first `/issue` that names it.
+      example: ASSET-LAND-001
+
+    IssueRequest:
+      type: object
+      required: [tokenType, quantity, recipient, recipientNode]
+      properties:
+        tokenType:
+          $ref: "#/components/schemas/TokenType"
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+        recipient:
+          type: string
+          description: Owner wallet handle to mint into.
+          example: user1
+        recipientNode:
+          type: string
+          description: FSC node holding that wallet. Required here, unlike on `/transfer`.
+          example: owner
+        message:
+          type: string
+          description: Free-text note stored in application metadata and echoed by history.
+          example: initial mint
+
+    TransferRequest:
+      type: object
+      required: [tokenType, quantity, sender, recipient]
+      properties:
+        tokenType:
+          $ref: "#/components/schemas/TokenType"
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+        sender:
+          type: string
+          example: user1
+        recipient:
+          type: string
+          example: user2
+        recipientNode:
+          type: string
+          description: Optional here — omit when the recipient is on this same node.
+          example: owner
+        message:
+          type: string
+          example: payment
+      example:
+        tokenType: ASSET-LAND-001
+        quantity: 40
+        sender: user1
+        recipient: user2
+        recipientNode: owner
+        message: payment
+
+    RedeemRequest:
+      type: object
+      required: [tokenType, quantity, wallet]
+      properties:
+        tokenType:
+          $ref: "#/components/schemas/TokenType"
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+        wallet:
+          type: string
+          description: Wallet whose tokens are burned.
+          example: user2
+        message:
+          type: string
+          example: burn
+      example:
+        tokenType: ASSET-LAND-001
+        quantity: 5
+        wallet: user2
+        message: burn
+
+    RegisterWalletRequest:
+      type: object
+      required: [walletId]
+      properties:
+        walletId:
+          type: string
+          # Deliberately narrower than the server, which accepts a bare UUID or
+          # any prefix matching ([a-z0-9]{1,16}-)? - see ValidateWalletID in
+          # owner/wallets.go. The literal `usr-` is what makes Swagger UI's
+          # RandExp sampler emit a correctly prefixed handle instead of a random
+          # 1-16 char prefix or none at all.
+          pattern: "^usr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          description: |
+            Caller-supplied handle: `usr-` followed by a lowercase UUID v4. It
+            becomes a CA enrollment ID, so anything outside that shape is
+            rejected rather than sanitised.
+
+            The node itself also accepts a bare UUID, or any prefix of 1-16
+            lowercase alphanumerics; `usr-` is the convention this API documents
+            and generates.
+
+            **Permanent — generate a fresh one for every call.** There is
+            deliberately no prefilled example here: a handle is burned the first
+            time it is submitted, so a fixed one would work once and return
+            `400 already registered` for everyone afterwards.
+
+            ```
+            echo "usr-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+            ```
+
+    OrderID:
+      type: string
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      description: |
+        Caller-supplied order reference: 1-128 characters of `[A-Za-z0-9._:-]`,
+        starting alphanumeric. Single-use across `/lock`, `/confirm` and `/cancel`.
+      example: ord-001
+
+    LockRequest:
+      type: object
+      required: [orderId, tokenType, quantity, sender]
+      properties:
+        orderId:
+          $ref: "#/components/schemas/OrderID"
+        tokenType:
+          $ref: "#/components/schemas/TokenType"
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+        sender:
+          type: string
+          description: |
+            Wallet whose tokens are escrowed. Cannot be `escrow` itself — that
+            would create an order that can never be meaningfully cancelled.
+          example: user1
+        listingId:
+          type: string
+          description: Recorded alongside the order but not enforced yet.
+          example: listing-abc
+      example:
+        orderId: ord-001
+        tokenType: ASSET-LAND-001
+        quantity: 20
+        sender: user1
+        listingId: listing-abc
+
+    ConfirmRequest:
+      type: object
+      required: [orderId, recipient]
+      properties:
+        orderId:
+          $ref: "#/components/schemas/OrderID"
+        recipient:
+          type: string
+          description: Buyer wallet the escrowed tokens settle to.
+          example: user2
+      example:
+        orderId: ord-001
+        recipient: user2
+
+    CancelRequest:
+      type: object
+      required: [orderId]
+      properties:
+        orderId:
+          $ref: "#/components/schemas/OrderID"
+      example:
+        orderId: ord-001
+
+    TransactionHistoryItem:
+      type: object
+      properties:
+        txId:
+          type: string
+          description: Fabric transaction ID.
+        actionType:
+          type: integer
+          enum: [0, 1, 2]
+          description: "`0` issue, `1` transfer, `2` redeem."
+        sender:
+          type: string
+        recipient:
+          type: string
+        tokenType:
+          type: string
+        amount:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+          description: UTC.
+        status:
+          type: string
+          enum: [Unknown, Pending, Confirmed, Deleted]
+        message:
+          type: string
+          description: |
+            The `message` supplied on the originating call, if any. DvP legs carry
+            `dvp-lock:<orderId>` and similar tags here.
+      example:
+        txId: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
+        actionType: 1
+        sender: user1
+        recipient: user2
+        tokenType: ASSET-LAND-001
+        amount: 40
+        timestamp: "2026-08-06T09:15:42Z"
+        status: Confirmed
+        message: payment
