@@ -747,14 +747,42 @@ components:
         txId:
           type: string
           description: Fabric transaction ID.
-        actionType:
-          type: integer
-          enum: [0, 1, 2]
-          description: "`0` issue, `1` transfer, `2` redeem."
+        operationType:
+          type: string
+          enum: [ISSUE, TRANSFER, LOCK, CONFIRM, CANCEL, REDEEM]
+          description: |
+            Which API operation produced this transaction.
+
+            | value | meaning |
+            |---|---|
+            | `ISSUE` | Tokens created. Supply increases; no sender. |
+            | `TRANSFER` | Plain movement between two wallets. Immediate and final. |
+            | `LOCK` | First DvP leg — tokens moved into `escrow`, `orderId` claimed. |
+            | `CONFIRM` | Second DvP leg — order settled out of `escrow` to the buyer. |
+            | `CANCEL` | Second DvP leg — order unwound out of `escrow` to whoever locked it. |
+            | `REDEEM` | Tokens destroyed. Supply decreases; no recipient. |
+
+            A complete DvP order is exactly two transactions sharing an `orderId`:
+            one `LOCK`, then one `CONFIRM` or `CANCEL`.
+
+            Every row of a transaction carries the same value — including the
+            change output of a UTXO spend, which is why a `LOCK` shows a
+            `sender -> sender` row alongside the `sender -> escrow` one.
+
+            The owner and the auditor always agree: the operation is recorded on
+            the transaction when it is written, not re-derived from either node's
+            local bookkeeping.
+        orderId:
+          type: string
+          description: |
+            Present only on DvP legs. Pairs the `LOCK` with its `CONFIRM` or
+            `CANCEL`. Absent on issues, plain transfers and redeems.
         sender:
           type: string
+          description: Empty on `ISSUE`.
         recipient:
           type: string
+          description: Empty on `REDEEM`.
         tokenType:
           type: string
         amount:
@@ -771,14 +799,18 @@ components:
           type: string
           description: |
             The `message` supplied on the originating call, if any. DvP legs carry
-            `dvp-lock:<orderId>` and similar tags here.
+            a `dvp-lock:<orderId>` style tag here.
+
+            Free text and caller-supplied, so never parse it to determine the
+            operation — read `operationType`, which cannot be forged.
       example:
         txId: 0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff0
-        actionType: 1
-        sender: user1
-        recipient: user2
+        operationType: CANCEL
+        orderId: ord-001
+        sender: escrow
+        recipient: user1
         tokenType: ASSET-LAND-001
-        amount: 40
+        amount: 20
         timestamp: "2026-08-06T09:15:42Z"
         status: Confirmed
-        message: payment
+        message: dvp-cancel:ord-001

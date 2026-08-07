@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"time"
 
 	"github.com/hyperledger-labs/fabric-smart-client/platform/common/utils/collections/iterators"
 	"github.com/hyperledger-labs/fabric-smart-client/platform/view/services"
@@ -13,6 +12,8 @@ import (
 	ttxdep "github.com/hyperledger-labs/fabric-token-sdk/token/services/ttx/dep/db"
 	token2 "github.com/hyperledger-labs/fabric-token-sdk/token/token"
 	"github.com/pkg/errors"
+
+	"github.com/vikash-ftw/assetchain/token-service/views"
 )
 
 // TokenService answers the same questions as the owner but from the auditor's
@@ -22,17 +23,9 @@ type TokenService struct {
 	FSC services.Provider
 }
 
-type TransactionHistoryItem struct {
-	TxID       string    `json:"txId"`
-	ActionType int       `json:"actionType"`
-	Sender     string    `json:"sender"`
-	Recipient  string    `json:"recipient"`
-	TokenType  string    `json:"tokenType"`
-	Amount     int64     `json:"amount"`
-	Timestamp  time.Time `json:"timestamp"`
-	Status     string    `json:"status"`
-	Message    string    `json:"message,omitempty"`
-}
+// Shared with the owner so the two nodes cannot describe the same transaction
+// differently.
+type TransactionHistoryItem = views.TransactionHistoryItem
 
 // ttx.MyAuditorWallet needs a view.Context an HTTP handler does not have, but
 // it only wraps the WalletManager and ttx.NewAuditor takes a plain
@@ -101,14 +94,14 @@ func (s TokenService) GetHistory(ctx context.Context, wallet string) ([]Transact
 	}
 
 	out := make([]TransactionHistoryItem, 0, len(records))
+	byTx := make(map[string]views.TxClassification, len(records))
 	for _, tx := range records {
 		item := TransactionHistoryItem{
-			TxID:       tx.TxID,
-			ActionType: int(tx.ActionType),
-			Sender:     tx.SenderEID,
-			Recipient:  tx.RecipientEID,
-			TokenType:  string(tx.TokenType),
-			Timestamp:  tx.Timestamp.UTC(),
+			TxID:      tx.TxID,
+			Sender:    tx.SenderEID,
+			Recipient: tx.RecipientEID,
+			TokenType: string(tx.TokenType),
+			Timestamp: tx.Timestamp.UTC(),
 			// TxStatus is an int, so string(tx.Status) would yield a garbage
 			// rune rather than the status name.
 			Status: dbdriver.TxStatusMessage[tx.Status],
@@ -119,8 +112,14 @@ func (s TokenService) GetHistory(ctx context.Context, wallet string) ([]Transact
 		if m, ok := tx.ApplicationMetadata["message"]; ok && len(m) > 0 {
 			item.Message = string(m)
 		}
+		item.OrderID = string(tx.ApplicationMetadata[views.OrderIDMetadataKey])
+		byTx[tx.TxID] = views.TxClassification{
+			ActionType: int(tx.ActionType),
+			DvPAction:  string(tx.ApplicationMetadata[views.DvPActionMetadataKey]),
+		}
 		out = append(out, item)
 	}
+	views.ClassifyOperations(out, byTx)
 
 	return out, nil
 }

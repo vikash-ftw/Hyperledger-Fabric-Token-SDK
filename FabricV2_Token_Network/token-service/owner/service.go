@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"strconv"
-	"time"
 
 	"github.com/hyperledger-labs/fabric-smart-client/platform/common/utils/collections/iterators"
 	"github.com/hyperledger-labs/fabric-smart-client/platform/view/services"
@@ -37,17 +36,9 @@ type TokenService struct {
 	orders *orderStore
 }
 
-type TransactionHistoryItem struct {
-	TxID       string    `json:"txId"`
-	ActionType int       `json:"actionType"`
-	Sender     string    `json:"sender"`
-	Recipient  string    `json:"recipient"`
-	TokenType  string    `json:"tokenType"`
-	Amount     int64     `json:"amount"`
-	Timestamp  time.Time `json:"timestamp"`
-	Status     string    `json:"status"`
-	Message    string    `json:"message,omitempty"`
-}
+// Shared with the auditor so the two nodes cannot describe the same transaction
+// differently.
+type TransactionHistoryItem = views.TransactionHistoryItem
 
 func (s TokenService) TransferTokens(ctx context.Context, tokenType string, quantity uint64, sender, recipient, recipientNode, message string) (string, error) {
 	return s.transferWithMetadata(ctx, tokenType, quantity, sender, recipient, recipientNode, message, nil)
@@ -197,14 +188,14 @@ func (s TokenService) GetHistory(ctx context.Context, wallet string) ([]Transact
 	}
 
 	out := make([]TransactionHistoryItem, 0, len(records))
+	byTx := make(map[string]views.TxClassification, len(records))
 	for _, tx := range records {
 		item := TransactionHistoryItem{
-			TxID:       tx.TxID,
-			ActionType: int(tx.ActionType),
-			Sender:     tx.SenderEID,
-			Recipient:  tx.RecipientEID,
-			TokenType:  string(tx.TokenType),
-			Timestamp:  tx.Timestamp.UTC(),
+			TxID:      tx.TxID,
+			Sender:    tx.SenderEID,
+			Recipient: tx.RecipientEID,
+			TokenType: string(tx.TokenType),
+			Timestamp: tx.Timestamp.UTC(),
 			// TxStatus is an int, so string(tx.Status) would yield a garbage
 			// rune rather than the status name.
 			Status: dbdriver.TxStatusMessage[tx.Status],
@@ -215,8 +206,14 @@ func (s TokenService) GetHistory(ctx context.Context, wallet string) ([]Transact
 		if m, ok := tx.ApplicationMetadata["message"]; ok && len(m) > 0 {
 			item.Message = string(m)
 		}
+		item.OrderID = string(tx.ApplicationMetadata[views.OrderIDMetadataKey])
+		byTx[tx.TxID] = views.TxClassification{
+			ActionType: int(tx.ActionType),
+			DvPAction:  string(tx.ApplicationMetadata[views.DvPActionMetadataKey]),
+		}
 		out = append(out, item)
 	}
+	views.ClassifyOperations(out, byTx)
 
 	return out, nil
 }

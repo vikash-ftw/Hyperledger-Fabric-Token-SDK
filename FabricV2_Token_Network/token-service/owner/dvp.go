@@ -5,17 +5,15 @@ import (
 	"regexp"
 
 	"github.com/pkg/errors"
+
+	"github.com/vikash-ftw/assetchain/token-service/views"
 )
 
-// EscrowWallet holds locked tokens between /lock and /confirm|/cancel. It is
-// an ordinary owner wallet; the escrow property comes from this service
-// refusing to move its tokens except via a matching order, not from the ledger.
-const EscrowWallet = "escrow"
-
-// OrderIDMetadataKey tags every leg of an order so the legs can be grouped
-// later from transaction history. It is NOT how /confirm and /cancel find an
-// order - see TokenService.orders.
-const OrderIDMetadataKey = "orderId"
+// EscrowWallet is an ordinary owner wallet; the escrow property comes from this
+// service refusing to move its tokens except via a matching order, not from the
+// ledger. It lives in views because the auditor classifies history too and
+// cannot import this package.
+const EscrowWallet = views.EscrowWallet
 
 // All three map to HTTP 400: each is a caller mistake, not a server fault.
 var (
@@ -81,8 +79,7 @@ func (s TokenService) LockTokens(ctx context.Context, orderID, tokenType string,
 		return "", err
 	}
 
-	txID, err := s.transferTagged(ctx, orderID, tokenType, quantity, sender, EscrowWallet,
-		"dvp-lock:"+orderID)
+	txID, err := s.transferTagged(ctx, views.DvPActionLock, orderID, tokenType, quantity, sender, EscrowWallet)
 	if err != nil {
 		// Tokens never moved, so free the orderId for retry rather than
 		// leaving it wedged in `locked`.
@@ -106,13 +103,13 @@ func (s TokenService) LockTokens(ctx context.Context, orderID, tokenType string,
 
 // ConfirmOrder settles a locked order: escrow -> recipient.
 func (s TokenService) ConfirmOrder(ctx context.Context, orderID, recipient string) (string, error) {
-	return s.settle(ctx, orderID, "confirm", recipient)
+	return s.settle(ctx, orderID, views.DvPActionConfirm, recipient)
 }
 
 // CancelOrder unwinds a locked order back to the sender recorded at lock time.
 // The caller does not choose the destination.
 func (s TokenService) CancelOrder(ctx context.Context, orderID string) (string, error) {
-	return s.settle(ctx, orderID, "cancel", "")
+	return s.settle(ctx, orderID, views.DvPActionCancel, "")
 }
 
 func (s TokenService) settle(ctx context.Context, orderID, action, recipient string) (string, error) {
@@ -142,7 +139,7 @@ func (s TokenService) settle(ctx context.Context, orderID, action, recipient str
 
 	dest := recipient
 	newStatus := OrderStatusConfirmed
-	if action == "cancel" {
+	if action == views.DvPActionCancel {
 		dest = order.Sender
 		newStatus = OrderStatusCancelled
 	}
@@ -157,8 +154,7 @@ func (s TokenService) settle(ctx context.Context, orderID, action, recipient str
 		return "", err
 	}
 
-	txID, err := s.transferTagged(ctx, orderID, order.TokenType, order.Quantity, EscrowWallet, dest,
-		"dvp-"+action+":"+orderID)
+	txID, err := s.transferTagged(ctx, action, orderID, order.TokenType, order.Quantity, EscrowWallet, dest)
 	if err != nil {
 		if rbErr := s.rollbackToLocked(ctx, orderID); rbErr != nil {
 			logger.Errorf("order [%s] %s failed AND could not be rolled back to locked: %v (original: %v)",
@@ -190,7 +186,16 @@ func (s TokenService) rollbackToLocked(ctx context.Context, orderID string) erro
 
 // recipientNode is always "owner": every wallet a DvP order settles between
 // lives on this node.
-func (s TokenService) transferTagged(ctx context.Context, orderID, tokenType string, quantity uint64, sender, recipient, message string) (string, error) {
-	return s.transferWithMetadata(ctx, tokenType, quantity, sender, recipient, "owner", message,
-		map[string]string{OrderIDMetadataKey: orderID})
+//
+// The action reaches history through metadata, not through the message: message
+// is caller-supplied on /transfer, so a reader that trusted it could be told a
+// plain transfer was a confirm. Both are derived from the same argument here so
+// the human-readable tag and the machine-readable key cannot drift.
+func (s TokenService) transferTagged(ctx context.Context, action, orderID, tokenType string, quantity uint64, sender, recipient string) (string, error) {
+	return s.transferWithMetadata(ctx, tokenType, quantity, sender, recipient, "owner",
+		"dvp-"+action+":"+orderID,
+		map[string]string{
+			views.OrderIDMetadataKey:   orderID,
+			views.DvPActionMetadataKey: action,
+		})
 }

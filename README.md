@@ -59,14 +59,6 @@ curl http://localhost:9200/healthz   # owner
 **<http://localhost:8090>** — Swagger UI covering all three nodes, started
 alongside them by `startTokenNodes.sh`.
 
-`Try it out` works there because the same container reverse-proxies the nodes at
-`/api/issuer`, `/api/owner` and `/api/auditor`, so the browser talks to one
-origin; the nodes send no CORS headers, so calling their ports directly from a
-browser will not work. `curl` is unaffected — use the ports below.
-
-The spec is `FabricV2_Token_Network/api/openapi.yaml`. Its directory is mounted
-into the container, so an edit is served on the next page reload — no restart,
-no rebuild.
 
 ### Restart / stop
 
@@ -175,15 +167,18 @@ and `/redeem`. Custodial: this node holds the signing key. The handle is caller-
 and permanent — there is no unregister API, so reusing one returns HTTP 400.
 The fixed wallets (`escrow`, `user1`, `user2`) come from `registerTokenWallets.sh` instead.
 
-**DvP semantics:** `/lock` moves tokens `sender -> escrow` and claims `orderId`.
-`/confirm` settles `escrow -> recipient`; `/cancel` returns them to the original
-sender (no recipient parameter). Each `orderId` is single-use; reuse, or settling
-an order that is not `locked`, returns HTTP 400. Order state lives in the
-`app_order_locks` table in the owner database.
+**Transaction history:** every row carries an `operationType` naming the API
+operation that produced it, and DvP legs also carry their `orderId`.
 
-> `/confirm` and `/cancel` are **not yet authenticated** — `requireAuthority()` in
-> `token-service/owner/dvp.go` is a no-op stub. Anyone who can reach port 9200 can
-> settle or cancel any locked order.
+| value | meaning |
+|---|---|
+| `ISSUE` | tokens created — supply up, no sender |
+| `TRANSFER` | plain movement between two wallets, final |
+| `LOCK` | first DvP leg — into `escrow`, `orderId` claimed |
+| `CONFIRM` | second DvP leg — out of `escrow` to the buyer |
+| `CANCEL` | second DvP leg — out of `escrow` back to whoever locked it |
+| `REDEEM` | tokens destroyed — supply down, no recipient |
+
 
 ### Auditor — `:9000`
 
