@@ -73,6 +73,24 @@ type TxClassification struct {
 	DvPAction  string
 }
 
+// Merge folds another record of the same transaction into c.
+//
+// One transaction can carry more than one action type. A redeem spends whole
+// outputs, so it emits the redeem itself plus a transfer of the change back to
+// the sender; taking whichever record happened to be read last would label the
+// whole transaction a transfer. Issue and redeem are decisive - they say what
+// the transaction was for - so they win over transfer.
+func (c TxClassification) Merge(other TxClassification) TxClassification {
+	if other.DvPAction != "" {
+		c.DvPAction = other.DvPAction
+	}
+	if other.ActionType == ActionTypeIssue || other.ActionType == ActionTypeRedeem {
+		c.ActionType = other.ActionType
+	}
+
+	return c
+}
+
 // ClassifyOperations fills OperationType on every item, given per-transaction
 // facts keyed by transaction id.
 //

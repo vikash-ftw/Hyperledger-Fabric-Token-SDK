@@ -207,10 +207,14 @@ func (s TokenService) GetHistory(ctx context.Context, wallet string) ([]Transact
 			item.Message = string(m)
 		}
 		item.OrderID = string(tx.ApplicationMetadata[views.OrderIDMetadataKey])
-		byTx[tx.TxID] = views.TxClassification{
+		cur := views.TxClassification{
 			ActionType: int(tx.ActionType),
 			DvPAction:  string(tx.ApplicationMetadata[views.DvPActionMetadataKey]),
 		}
+		if prev, seen := byTx[tx.TxID]; seen {
+			cur = prev.Merge(cur)
+		}
+		byTx[tx.TxID] = cur
 		out = append(out, item)
 	}
 	views.ClassifyOperations(out, byTx)

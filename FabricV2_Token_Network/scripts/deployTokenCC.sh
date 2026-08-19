@@ -270,7 +270,7 @@ writeTokenCCEnvFile() {
 startChaincodeContainer() {
   displayMsg "--- Starting Token Chaincode container ---"
   set -x
-  docker-compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE_TOKEN_CC} up -d >&./logs/token_cc_container_up_log.txt
+  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE_TOKEN_CC} up -d >&./logs/token_cc_container_up_log.txt
   res=$?
   set +x
   cat ./logs/token_cc_container_up_log.txt

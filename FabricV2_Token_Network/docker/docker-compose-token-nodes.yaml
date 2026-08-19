@@ -2,10 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# 2.4 rather than the bare "2" used by the other files here: it is the version
-# supporting the healthcheck-gated `condition: service_healthy` form below.
-version: "2.4"
-
 # The three Token Service nodes plus the Postgres instance backing their state.
 #
 # Container names are dotted FQDN-style because those are the exact addresses
@@ -64,7 +60,9 @@ services:
     container_name: auditor.example.com
     build:
       context: ../token-service
-      dockerfile: auditor/Dockerfile
+      # One Dockerfile builds all three; the target picks the runtime stage.
+      dockerfile: ../docker/Dockerfile.nodes
+      target: auditor
     environment:
       - CONF_DIR=/var/fsc/conf
     volumes:
@@ -86,7 +84,9 @@ services:
       tokendb.example.com:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
+      # Runs the node binary itself, so the image needs no curl - and
+      # therefore no apt-get against deb.debian.org at build time.
+      test: ["CMD", "auditor", "-health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -98,7 +98,9 @@ services:
     container_name: issuer.example.com
     build:
       context: ../token-service
-      dockerfile: issuer/Dockerfile
+      # One Dockerfile builds all three; the target picks the runtime stage.
+      dockerfile: ../docker/Dockerfile.nodes
+      target: issuer
     environment:
       - CONF_DIR=/var/fsc/conf
     volumes:
@@ -126,7 +128,9 @@ services:
     container_name: owner.example.com
     build:
       context: ../token-service
-      dockerfile: owner/Dockerfile
+      # One Dockerfile builds all three; the target picks the runtime stage.
+      dockerfile: ../docker/Dockerfile.nodes
+      target: owner
     environment:
       - CONF_DIR=/var/fsc/conf
       # The NARROW registrar from scripts/registerWalletRegistrar.sh: it can

@@ -28,6 +28,12 @@ func main() {
 		restAddr = ":9100"
 	}
 
+	// Before any node startup: the container healthcheck runs this same binary,
+	// and only needs to probe the instance that is already serving.
+	if views.IsHealthCheck() {
+		views.HealthCheckAndExit(restAddr)
+	}
+
 	fsc := fscnode.NewWithConfPath(confDir)
 
 	// One SDK only: this already stacks the Fabric and View platforms, and

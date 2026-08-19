@@ -25,8 +25,8 @@ fi
 # Token containers first - they attach to the fbn network created by the base
 # compose file. startTokenNodes.sh brings the nodes up without --env-file, so
 # they must come down the same way or compose matches no containers.
-docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} down --volumes --remove-orphans
+docker compose -f ${COMPOSE_FILE_TOKEN_NODES} down --volumes --remove-orphans
 
-docker-compose --env-file $ENV_FILE -f ${COMPOSE_FILE_TOKEN_CC} down --volumes
+docker compose --env-file $ENV_FILE -f ${COMPOSE_FILE_TOKEN_CC} down --volumes
 
-docker-compose --env-file $ENV_FILE ${COMPOSE_FILES} down --volumes --remove-orphans
+docker compose --env-file $ENV_FILE ${COMPOSE_FILES} down --volumes --remove-orphans

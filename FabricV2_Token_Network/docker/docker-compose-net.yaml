@@ -2,9 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-version: "2"
-
-# to persist data to Docker managed volumes
+# To persist data to Docker managed volumes
 # commented As direct host path are mapped instead of defined volumes
 # volumes:
   # orderer.example.com:

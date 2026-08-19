@@ -32,6 +32,12 @@ func main() {
 		restAddr = ":9000"
 	}
 
+	// Before any node startup: the container healthcheck runs this same binary,
+	// and only needs to probe the instance that is already serving.
+	if views.IsHealthCheck() {
+		views.HealthCheckAndExit(restAddr)
+	}
+
 	fsc := fscnode.NewWithConfPath(confDir)
 
 	if err := fsc.InstallSDK(tokensdk.NewSDK(fsc)); err != nil {

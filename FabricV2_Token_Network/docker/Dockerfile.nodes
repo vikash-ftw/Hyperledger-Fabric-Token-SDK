@@ -1,0 +1,79 @@
+# Token Service nodes - issuer, auditor and owner.
+#
+# One builder stage for all three, selected at the runtime stage via
+# `--target`. Previously these were three files with an identical builder, so a
+# cold build compiled the dependency tree three times.
+#
+# The build context MUST be token-service/ (the workspace root), not an
+# individual module directory: each module imports the local `views` module,
+# which only resolves through go.work, and go.work lists all four - a missing
+# one fails with "cannot load module X listed in go.work file".
+#
+# Never set GOWORK=off. The workspace's unified build list is what keeps all
+# four modules on the same gnark-crypto/quic-go/libp2p versions; per-module MVS
+# drift previously produced an unresolvable linker error against IBM/mathlib.
+#
+# Base images are pinned by digest, not tag. `golang:1.25` is a rolling tag that
+# moved from 1.25.7 to 1.25.13 without any change here, silently changing the
+# compiler that produced these binaries. Re-pin deliberately with
+# scripts/pinImages.sh.
+
+FROM golang:1.25@sha256:cbff9d1a9041b316010f2da6b701b6c0d597718cb90928c85eb597334a0d23d4 AS builder
+WORKDIR /workspace
+
+COPY go.work go.work.sum ./
+COPY issuer/ ./issuer/
+COPY auditor/ ./auditor/
+COPY owner/ ./owner/
+COPY views/ ./views/
+
+# Cache mounts rather than image layers: without them each build re-downloads the
+# whole module tree, and a failed build discards everything it had fetched.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 go build -buildvcs=false -o /out/ ./issuer ./auditor ./owner
+
+# fabric-ca-client is needed at RUNTIME by the owner's wallet registration, which
+# shells out to it. Installed from the Go module proxy rather than a GitHub
+# release asset: the proxy caches published versions permanently and verifies
+# every download against sum.golang.org, so the build survives the release being
+# deleted and fails loudly rather than silently if a tag is ever moved.
+#
+# Shelling out rather than importing the module directly: the SDK ships no Go
+# client, and that dependency would drag a large tree into the pinned go.work
+# build list.
+FROM golang:1.25@sha256:cbff9d1a9041b316010f2da6b701b6c0d597718cb90928c85eb597334a0d23d4 AS cabuilder
+ARG FABRIC_CA_VERSION=v1.5.12
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOBIN=/out go install \
+      github.com/hyperledger/fabric-ca/cmd/fabric-ca-client@${FABRIC_CA_VERSION}
+
+# debian:trixie-slim is the OS golang:1.25 itself is built on, so glibc matches
+# exactly for the cgo-linked binaries without shipping the Go toolchain.
+#
+# No apt-get anywhere below. The CA bundle is copied out of the builder, which
+# already carries the identical ca-certificates release, removing every runtime
+# image's build-time dependency on deb.debian.org.
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS runtime-base
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENV CONF_DIR=/var/fsc/conf
+
+FROM runtime-base AS issuer
+COPY --from=builder /out/issuer /usr/local/bin/issuer
+EXPOSE 9100
+EXPOSE 9101
+CMD ["issuer"]
+
+FROM runtime-base AS auditor
+COPY --from=builder /out/auditor /usr/local/bin/auditor
+EXPOSE 9000
+EXPOSE 9001
+CMD ["auditor"]
+
+FROM runtime-base AS owner
+COPY --from=cabuilder /out/fabric-ca-client /usr/local/bin/fabric-ca-client
+COPY --from=builder /out/owner /usr/local/bin/owner
+EXPOSE 9200
+EXPOSE 9201
+CMD ["owner"]

@@ -10,6 +10,7 @@
 # Nothing is COPYied from the build context, so the compose context can stay at
 # docker/. It must never be FabricV2_Token_Network/, which would push
 # organizations/ and token-keys/ private keys into the build context.
+# Both bases pinned by digest; re-pin deliberately with scripts/pinImages.sh.
 FROM swaggerapi/swagger-ui:v5.29.0 AS ui
 
 FROM nginx:1.29-alpine

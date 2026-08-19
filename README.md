@@ -5,7 +5,7 @@ using the `fabtoken` driver, Postgres persistence, and CCAAS chaincode.
 
 ## Prerequisites
 
-Docker, Docker Compose, Go 1.25.7.
+Docker, Docker Compose v2 (the `docker compose` plugin), Go 1.25.7.
 
 ```bash
 ./loadFabricDependencies.sh     # downloads bin/, config/, builders/
@@ -63,7 +63,7 @@ alongside them by `startTokenNodes.sh`.
 ### Restart / stop
 
 ```bash
-docker-compose -f docker/docker-compose-token-nodes.yaml restart
+docker compose -f docker/docker-compose-token-nodes.yaml restart
 ./scripts/stop_network.sh
 ./scripts/startTokenNodes.sh          # brings the nodes back with state intact
 ```

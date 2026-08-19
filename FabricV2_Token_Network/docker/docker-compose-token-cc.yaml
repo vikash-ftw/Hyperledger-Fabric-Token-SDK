@@ -2,8 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-version: "2"
-
 # Token Chaincode (CCAAS) - a SINGLE shared container dialed by both peers.
 #
 # One container rather than one per peer because approveformyorg names exactly

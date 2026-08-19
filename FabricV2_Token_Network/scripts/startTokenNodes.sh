@@ -168,7 +168,7 @@ fi
 
 displayMsg "Building and starting Token Service nodes"
 set -x
-docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} up -d --build >&./logs/start_token_nodes_log.txt
+docker compose -f ${COMPOSE_FILE_TOKEN_NODES} up -d --build >&./logs/start_token_nodes_log.txt
 res=$?
 set +x
 cat ./logs/start_token_nodes_log.txt
@@ -178,10 +178,10 @@ echo
 echo "========= Token Service Nodes Started =========== "
 echo
 echo "Follow-up commands:"
-echo "  docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} ps"
-echo "  docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} logs -f auditor.example.com"
-echo "  docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} logs -f issuer.example.com"
-echo "  docker-compose -f ${COMPOSE_FILE_TOKEN_NODES} logs -f owner.example.com"
+echo "  docker compose -f ${COMPOSE_FILE_TOKEN_NODES} ps"
+echo "  docker compose -f ${COMPOSE_FILE_TOKEN_NODES} logs -f auditor.example.com"
+echo "  docker compose -f ${COMPOSE_FILE_TOKEN_NODES} logs -f issuer.example.com"
+echo "  docker compose -f ${COMPOSE_FILE_TOKEN_NODES} logs -f owner.example.com"
 echo "  curl http://localhost:9000/healthz   # auditor"
 echo "  curl http://localhost:9100/healthz   # issuer"
 echo "  curl http://localhost:9200/healthz   # owner"

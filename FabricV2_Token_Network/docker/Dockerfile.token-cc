@@ -1,20 +1,32 @@
 # Token Chaincode (CCAAS) image, compiled from upstream Token SDK source with
 # our public parameters baked in.
+#
+# Fetched from the Go module proxy rather than cloned from GitHub. A clone
+# checks out a MUTABLE tag, so a force-push upstream would silently change the
+# deployed chaincode with no error anywhere. The proxy caches published versions
+# permanently and verifies every download against sum.golang.org, so the build
+# survives the repository being renamed, archived or deleted, and a moved tag
+# fails the build instead of changing what runs. It also drops a full-history
+# clone that measured 58s, over half this image's build time.
+#
+# Base images are pinned by digest; re-pin deliberately with scripts/pinImages.sh.
 
-# golang:1.25 in both stages: both SDKs declare `go 1.25.7`.
-
-FROM golang:1.25 AS builder
-RUN git clone https://github.com/hyperledger-labs/fabric-token-sdk.git
-WORKDIR fabric-token-sdk
-RUN git checkout v0.10.1 && go mod download
-RUN CGO_ENABLED=1 go build -buildvcs=false -o /tcc token/services/network/fabric/tcc/main/main.go && chmod +x /tcc
+FROM golang:1.25@sha256:cbff9d1a9041b316010f2da6b701b6c0d597718cb90928c85eb597334a0d23d4 AS builder
+ARG TOKEN_SDK_VERSION=v0.10.1
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOBIN=/out go install \
+      github.com/hyperledger-labs/fabric-token-sdk/token/services/network/fabric/tcc/main@${TOKEN_SDK_VERSION} \
+ && mv /out/main /tcc
 
 # Runtime is debian:trixie-slim, not golang:1.25 - golang:1.25 IS Debian 13
 # trixie, so glibc matches exactly for the cgo-linked binary, without shipping
 # the Go toolchain. 1.3GB -> ~176MB.
-FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+#
+# The CA bundle is copied from the builder rather than installed with apt, so
+# this image has no build-time dependency on deb.debian.org.
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /tcc /usr/local/bin/tcc
 COPY fabtoken1_pp.json /fabtoken1_pp.json
 ENV PUBLIC_PARAMS_FILE_PATH=/fabtoken1_pp.json

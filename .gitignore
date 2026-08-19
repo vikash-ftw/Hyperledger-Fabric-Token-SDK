@@ -4,4 +4,5 @@
 /builders/
 /config/
 /fabric-samples/
-
+/docs/
+C*.md
